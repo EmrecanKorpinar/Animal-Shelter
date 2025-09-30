@@ -1,0 +1,29 @@
+{
+  "name": "barinak-backend",
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "migrate": "node db/migrate.js",
+    "seed": "node db/seed.js"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1400.0",
+    "barinak-app": "file:..",
+    "bcrypt": "^5.1.0",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.0.0",
+    "dotenv": "^16.0.0",
+    "express": "^4.21.2",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.0",
+    "multer": "^1.4.3",
+    "pg": "^8.10.0",
+    "socket.io": "^4.7.5",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
