@@ -6,22 +6,29 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "migrate": "node db/migrate.js",
-    "seed": "node db/seed.js"
+    "seed": "node db/seed.js",
+    "workers": "node workers/importWorker.js & node workers/imageOptimizeWorker.js",
+    "worker:import": "node workers/importWorker.js",
+    "worker:image": "node workers/imageOptimizeWorker.js"
   },
   "dependencies": {
     "aws-sdk": "^2.1400.0",
     "barinak-app": "file:..",
     "bcrypt": "^5.1.0",
+    "buffer": "^6.0.3",
     "cors": "^2.8.5",
     "csv-parser": "^3.0.0",
     "dotenv": "^16.0.0",
     "express": "^4.21.2",
     "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.0",
+    "lz4": "^0.6.5",
     "multer": "^1.4.3",
     "pg": "^8.10.0",
+    "sharp": "^0.34.4",
     "socket.io": "^4.7.5",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zstd-codec": "^0.1.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

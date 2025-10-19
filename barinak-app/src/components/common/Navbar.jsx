@@ -61,16 +61,25 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="bg-white shadow-md py-2 px-4 flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <img src="/vite.svg" alt="Logo" className="h-8 w-8" />
-        <span className="text-xl font-bold text-gray-800">BarınakApp</span>
+    <nav className="bg-white shadow-md py-4 px-4 flex items-center justify-between">
+      <div className="flex items-center gap-4">
+        <img 
+          src="/logo1.svg" 
+          alt="Logo" 
+          className="h-16 w-auto object-contain filter brightness-110 contrast-110 hover:scale-105 transition-all duration-300 ease-in-out"
+          style={{
+            filter: 'drop-shadow(0 0 0 transparent)',
+            background: 'transparent',
+            border: 'none',
+            outline: 'none'
+          }}
+        />
+        <span className="text-2xl font-bold text-gray-800 tracking-wide">Sıcak Yuva</span>
       </div>
       <div className="flex items-center gap-4">
-        <Link to="/" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Ana Sayfa</Link>
-        <Link to="/animals" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Hayvanlar</Link>
-        <Link to="/search" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Ara</Link>
-        <Link to="/adopt" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Sahiplen</Link>
+  <Link to="/" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Ana Sayfa</Link>
+  <Link to="/animals" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Hayvanlar</Link>
+  <Link to="/adopt" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Sahiplen</Link>
         {user && user.role === 'admin' && (
           <Link to="/admin" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition">Admin</Link>
         )}

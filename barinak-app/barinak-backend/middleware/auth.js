@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
+const { updateUserActivity } = require('../controllers/systemController');
 
 // Lokal sabit gizli anahtar (dev ortamı için)
 const JWT_SECRET = 'devsecret';
@@ -13,6 +14,10 @@ function authenticate(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = payload;
+    
+    // Update user activity for monitoring
+    updateUserActivity(payload.id, payload.username, payload.role);
+    
     // Best-effort: update session last_seen for this user (if a session exists)
     try {
       pool.query(

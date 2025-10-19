@@ -1,3 +1,15 @@
+-- Performans için indexler
+-- users.username zaten UNIQUE, ek index gerekmez
+CREATE INDEX IF NOT EXISTS idx_animals_adopted ON animals(adopted);
+CREATE INDEX IF NOT EXISTS idx_animals_species ON animals(species);
+CREATE INDEX IF NOT EXISTS idx_animals_adopted_by ON animals(adopted_by);
+CREATE INDEX IF NOT EXISTS idx_adoption_requests_user_id ON adoption_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_adoption_requests_animal_id ON adoption_requests(animal_id);
+CREATE INDEX IF NOT EXISTS idx_adoption_requests_status ON adoption_requests(status);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
+CREATE INDEX IF NOT EXISTS idx_user_views_user_id ON user_views(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_views_animal_id ON user_views(animal_id);
 -- Users (admin and regular users)
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,

@@ -20,7 +20,7 @@ const AdoptionModal = ({ isOpen, onClose, animalName, animalImage }) => {
         <div className="p-6 text-center">
           <div className="mb-6">
             <img
-              src={animalImage || "/vite.svg"}
+              src={animalImage || "/logo1.svg"}
               alt={animalName}
               className="w-20 h-20 object-cover rounded-full mx-auto mb-4 border-4 border-green-200"
             />

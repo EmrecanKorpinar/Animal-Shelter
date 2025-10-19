@@ -1,3 +1,4 @@
+const { importJobQueue } = require('../utils/importQueue');
 const multer = require('multer');
 const csv = require('csv-parser');
 const XLSX = require('xlsx');
@@ -138,7 +139,57 @@ async function exportToExcel(req, res) {
   }
 }
 
-// CSV import
+// Queue status endpoint
+async function getQueueStatus(req, res) {
+  try {
+    const Queue = require('bull');
+    const importQueue = new Queue('import-job', { redis: { host: process.env.REDIS_HOST || '127.0.0.1', port: process.env.REDIS_PORT || 6379 } });
+    const imageQueue = new Queue('image-optimize', { redis: { host: process.env.REDIS_HOST || '127.0.0.1', port: process.env.REDIS_PORT || 6379 } });
+    
+    const [importCounts, imageCounts] = await Promise.all([
+      importQueue.getJobCounts(),
+      imageQueue.getJobCounts()
+    ]);
+
+    // Get some recent jobs for display
+    const importJobs = await importQueue.getJobs(['completed', 'failed', 'active', 'waiting'], 0, 10);
+    const imageJobs = await imageQueue.getJobs(['completed', 'failed', 'active', 'waiting'], 0, 10);
+
+    await importQueue.close();
+    await imageQueue.close();
+
+    res.json({
+      import: {
+        counts: importCounts,
+        recentJobs: importJobs.map(job => ({
+          id: job.id,
+          data: job.data,
+          progress: job.progress(),
+          processedOn: job.processedOn,
+          finishedOn: job.finishedOn,
+          failedReason: job.failedReason,
+          opts: job.opts
+        }))
+      },
+      imageOptimize: {
+        counts: imageCounts,
+        recentJobs: imageJobs.map(job => ({
+          id: job.id,
+          data: job.data,
+          progress: job.progress(),
+          processedOn: job.processedOn,
+          finishedOn: job.finishedOn,
+          failedReason: job.failedReason,
+          opts: job.opts
+        }))
+      }
+    });
+
+  } catch (err) {
+    console.error('Queue status error:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
 async function importFromCSV(req, res) {
   try {
     if (!req.file) {
@@ -155,38 +206,17 @@ async function importFromCSV(req, res) {
       .on('end', async () => {
         try {
           const animals = parseCSVData(results);
-          let importedCount = 0;
-          let errorCount = 0;
-
-          // Her hayvanı kaydet
+          let enqueued = 0;
           for (const animal of animals) {
-            try {
-              if (animal.name && animal.species) {
-                await Animal.create(animal);
-                importedCount++;
-              } else {
-                errorCount++;
-              }
-            } catch (err) {
-              console.error('Animal creation error:', err);
-              errorCount++;
-            }
+            await importJobQueue.add(animal);
+            enqueued++;
           }
-
-          // Dosyayı sil
           fs.unlinkSync(filePath);
-
-          // Cache'i temizle
-          await invalidateCache('animals:*');
-          await invalidateCache('animal:*');
-
           res.json({
             success: true,
-            message: `${importedCount} hayvan başarıyla içe aktarıldı`,
-            imported: importedCount,
-            errors: errorCount
+            message: `${enqueued} hayvan iş kuyruğuna eklendi. Arka planda işlenecek.`,
+            enqueued
           });
-
         } catch (err) {
           console.error('CSV import error:', err);
           res.status(500).json({ error: 'CSV import hatası: ' + err.message });
@@ -210,36 +240,16 @@ async function importFromExcel(req, res) {
     const workbook = XLSX.readFile(filePath);
     const animals = parseExcelData(workbook);
 
-    let importedCount = 0;
-    let errorCount = 0;
-
-    // Her hayvanı kaydet
+    let enqueued = 0;
     for (const animal of animals) {
-      try {
-        if (animal.name && animal.species) {
-          await Animal.create(animal);
-          importedCount++;
-        } else {
-          errorCount++;
-        }
-      } catch (err) {
-        console.error('Animal creation error:', err);
-        errorCount++;
-      }
+      await importJobQueue.add(animal);
+      enqueued++;
     }
-
-    // Dosyayı sil
     fs.unlinkSync(filePath);
-
-    // Cache'i temizle
-    await invalidateCache('animals:*');
-    await invalidateCache('animal:*');
-
     res.json({
       success: true,
-      message: `${importedCount} hayvan başarıyla içe aktarıldı`,
-      imported: importedCount,
-      errors: errorCount
+      message: `${enqueued} hayvan iş kuyruğuna eklendi. Arka planda işlenecek.`,
+      enqueued
     });
 
   } catch (err) {
@@ -249,6 +259,39 @@ async function importFromExcel(req, res) {
 }
 
 // Excel şablon indir
+// Queue status endpoint
+async function getQueueStatus(req, res) {
+  try {
+    const { imageOptimizeQueue } = require('../utils/importQueue');
+    
+    // Import queue stats
+    const importStats = await importJobQueue.getJobCounts();
+    
+    // Image optimize queue stats  
+    const imageStats = await imageOptimizeQueue.getJobCounts();
+
+    res.json({
+      import: {
+        counts: importStats,
+        progress: importStats.completed > 0 ? 
+          Math.round((importStats.completed / (importStats.completed + importStats.waiting + importStats.active)) * 100) : 0,
+        totalJobs: importStats.completed + importStats.waiting + importStats.active,
+        totalProcessed: importStats.completed
+      },
+      imageOptimize: {
+        counts: imageStats,
+        progress: imageStats.completed > 0 ? 
+          Math.round((imageStats.completed / (imageStats.completed + imageStats.waiting + imageStats.active)) * 100) : 0,
+        totalJobs: imageStats.completed + imageStats.waiting + imageStats.active,
+        totalProcessed: imageStats.completed
+      }
+    });
+  } catch (err) {
+    console.error('Queue status error:', err);
+    res.status(500).json({ error: 'Queue status alınamadı: ' + err.message });
+  }
+}
+
 async function exportExcelTemplate(req, res) {
   try {
     const headers = [
@@ -269,11 +312,69 @@ async function exportExcelTemplate(req, res) {
   }
 }
 
+// Queue Status - İş kuyruğu durumunu getir
+async function getQueueStatus(req, res) {
+  try {
+    const { importJobQueue, imageOptimizeQueue } = require('../utils/importQueue');
+    
+    // Import queue stats
+    const importWaiting = await importJobQueue.getJobs(['waiting']);
+    const importActive = await importJobQueue.getJobs(['active']);
+    const importCompleted = await importJobQueue.getJobs(['completed'], 0, 99);
+    const importFailed = await importJobQueue.getJobs(['failed'], 0, 99);
+    
+    // Image optimize queue stats
+    const imageWaiting = await imageOptimizeQueue.getJobs(['waiting']);
+    const imageActive = await imageOptimizeQueue.getJobs(['active']);
+    const imageCompleted = await imageOptimizeQueue.getJobs(['completed'], 0, 99);
+    const imageFailed = await imageOptimizeQueue.getJobs(['failed'], 0, 99);
+
+    // Calculate progress
+    const totalImportJobs = importWaiting.length + importActive.length + importCompleted.length;
+    const importProgress = totalImportJobs > 0 ? Math.round((importCompleted.length / totalImportJobs) * 100) : 0;
+    
+    const totalImageJobs = imageWaiting.length + imageActive.length + imageCompleted.length;
+    const imageProgress = totalImageJobs > 0 ? Math.round((imageCompleted.length / totalImageJobs) * 100) : 0;
+
+    const response = {
+      import: {
+        counts: {
+          waiting: importWaiting.length,
+          active: importActive.length,
+          completed: importCompleted.length,
+          failed: importFailed.length
+        },
+        progress: importProgress,
+        totalJobs: totalImportJobs,
+        totalProcessed: importCompleted.length
+      },
+      imageOptimize: {
+        counts: {
+          waiting: imageWaiting.length,
+          active: imageActive.length,
+          completed: imageCompleted.length,
+          failed: imageFailed.length
+        },
+        progress: imageProgress,
+        totalJobs: totalImageJobs,
+        totalProcessed: imageCompleted.length
+      }
+    };
+
+    console.log('Queue stats response:', JSON.stringify(response, null, 2));
+    res.json(response);
+  } catch (err) {
+    console.error('Queue status error:', err);
+    res.status(500).json({ error: 'Queue durumu alınamadı: ' + err.message });
+  }
+}
+
 module.exports = {
   upload,
   exportToCSV,
   exportToExcel,
   importFromCSV,
   importFromExcel,
-  exportExcelTemplate
+  exportExcelTemplate,
+  getQueueStatus
 };

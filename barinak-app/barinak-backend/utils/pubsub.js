@@ -1,4 +1,4 @@
-const { redisClient } = require('../config');
+const { redisClient, redisSubscriber } = require('../config');
 
 // Cache invalidation helper
 const invalidateCache = async (pattern) => {
@@ -83,49 +83,21 @@ const publishAnimalAdopted = async (animalId, userId) => {
 
 // Subscriber setup function
 const setupSubscribers = () => {
-  // Animal update subscriber
-  redisClient.subscribe(CHANNELS.ANIMAL_UPDATED, (err) => {
-    if (err) {
-      console.error('Failed to subscribe to animal updates:', err);
-    } else {
-      console.log('Subscribed to animal updates');
-    }
+  // Use a dedicated subscriber client to avoid blocking commands on the main redis client
+  const sub = redisSubscriber;
+
+  const subs = [CHANNELS.ANIMAL_UPDATED, CHANNELS.ADOPTION_APPROVED, CHANNELS.ADOPTION_REJECTED, CHANNELS.ANIMAL_ADOPTED];
+  subs.forEach((channel) => {
+    sub.subscribe(channel, (err) => {
+      if (err) console.error(`Failed to subscribe to ${channel}:`, err);
+      else console.log(`Subscribed to ${channel}`);
+    });
   });
 
-  // Adoption approved subscriber
-  redisClient.subscribe(CHANNELS.ADOPTION_APPROVED, (err) => {
-    if (err) {
-      console.error('Failed to subscribe to adoption approvals:', err);
-    } else {
-      console.log('Subscribed to adoption approvals');
-    }
-  });
-
-  // Adoption rejected subscriber
-  redisClient.subscribe(CHANNELS.ADOPTION_REJECTED, (err) => {
-    if (err) {
-      console.error('Failed to subscribe to adoption rejections:', err);
-    } else {
-      console.log('Subscribed to adoption rejections');
-    }
-  });
-
-  // Animal adopted subscriber
-  redisClient.subscribe(CHANNELS.ANIMAL_ADOPTED, (err) => {
-    if (err) {
-      console.error('Failed to subscribe to animal adopted:', err);
-    } else {
-      console.log('Subscribed to animal adopted');
-    }
-  });
-
-  // Message handler
-  redisClient.on('message', (channel, message) => {
+  sub.on('message', (channel, message) => {
     try {
       const data = JSON.parse(message);
       console.log(`Received message on channel ${channel}:`, data);
-
-      // Handle different message types
       switch (channel) {
         case CHANNELS.ANIMAL_UPDATED:
           handleAnimalUpdate(data);

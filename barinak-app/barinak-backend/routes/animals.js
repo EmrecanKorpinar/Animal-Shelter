@@ -15,6 +15,12 @@ const animalDetailCacheKey = (req) => `animal:${req.params.id}`;
 // Hayvan listesi için cache uygula (5 dakika)
 router.get('/', cacheMiddleware(animalListCacheKey, 300), ctrl.list);
 router.get('/adopted', cacheMiddleware('animals:adopted', 300), ctrl.listAdoptedWithUser);
+
+// Admin özel endpoint'ler
+router.get('/search/:id', authenticate, requireAdmin, ctrl.searchById);
+
+// Bulk delete all animals (admin only). Use a dedicated path to avoid accidental deletes.
+router.delete('/all', authenticate, requireAdmin, ctrl.removeAll);
 router.get('/:id', cacheMiddleware(animalDetailCacheKey, 300), ctrl.getById);
 router.post('/', authenticate, requireAdmin, upload.single('image'), ctrl.create);
 router.put('/:id', authenticate, requireAdmin, upload.single('image'), ctrl.update);

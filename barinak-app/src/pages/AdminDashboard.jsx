@@ -21,10 +21,18 @@ export default function AdminDashboard() {
   const [_showImportModal, _setShowImportModal] = useState(false);
   const [importType, setImportType] = useState('csv');
   const [cacheStats, setCacheStats] = useState(null);
+  const [systemStats, setSystemStats] = useState(null);
+  const [queueStats, setQueueStats] = useState(null);
 
   // Import states
   const [importFile, setImportFile] = useState(null);
   const [importLoading, setImportLoading] = useState(false);
+
+  // ID Search states
+  const [searchId, setSearchId] = useState('');
+  const [searchResult, setSearchResult] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(null);
 
   // ref for notification panel click-outside handling
   const notificationRef = useRef(null);
@@ -74,7 +82,7 @@ export default function AdminDashboard() {
       const res = await api.get(`/animals/${animalId}`);
       const name = res?.data?.name || '';
       setAnimalNameCache(prev => ({ ...prev, [animalId]: name }));
-    } catch (e) {
+    } catch {
       // ignore
     } finally {
       setLoadingAnimalId(null);
@@ -138,16 +146,17 @@ export default function AdminDashboard() {
 
   async function loadCacheStats() {
     try {
-      const res = await api.get('/api/cache/stats');
+      const res = await api.get('/cache/stats');
       setCacheStats(res.data);
     } catch (err) {
       console.error('Cache stats yüklenemedi:', err);
+      setCacheStats({ error: err?.response?.data?.error || err.message || String(err) });
     }
   }
 
   async function clearCacheStats() {
     try {
-      await api.post('/api/cache/clear');
+      await api.post('/cache/clear');
       setCacheStats(null);
     } catch (err) {
       console.error('Cache stats temizlenemedi:', err);
@@ -156,12 +165,121 @@ export default function AdminDashboard() {
 
   async function warmCache() {
     try {
-      await api.post('/api/cache/warm');
+      await api.post('/cache/warm');
       alert('Cache başarıyla önceden yüklendi');
     } catch (err) {
       alert('Cache warming başarısız: ' + (err?.response?.data?.error || err.message));
     }
   }
+
+  // Poll cache stats every 10 seconds while admin panel is open
+  useEffect(() => {
+    let mounted = true;
+    let interval = null;
+    (async () => {
+      if (!mounted) return;
+      await loadCacheStats();
+      interval = setInterval(() => {
+        loadCacheStats();
+      }, 10000);
+    })();
+    return () => { mounted = false; if (interval) clearInterval(interval); };
+  }, []);
+
+  // Load system stats
+  async function loadSystemStats() {
+    try {
+      const res = await api.get('/system/stats');
+      setSystemStats(res.data);
+    } catch (err) {
+      console.error('System stats yüklenemedi:', err);
+      setSystemStats({ error: err?.response?.data?.error || err.message || String(err) });
+    }
+  }
+
+  // ID ile hayvan arama
+  async function searchAnimalById() {
+    if (!searchId || searchId.trim() === '') {
+      setSearchError('Lütfen bir ID girin');
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchResult(null);
+
+    try {
+      const res = await api.get(`/animals/search/${searchId.trim()}`);
+      setSearchResult(res.data);
+    } catch (err) {
+      console.error('ID ile arama hatası:', err);
+      if (err.response?.status === 404) {
+        setSearchError('Bu ID\'ye sahip hayvan bulunamadı');
+      } else {
+        setSearchError(err?.response?.data?.error || 'Arama sırasında hata oluştu');
+      }
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  // Arama sonucunu düzenle
+  const handleEditSearchResult = () => {
+    if (searchResult) {
+      setSelectedAnimal(searchResult);
+      setShowEditModal(true);
+    }
+  };
+
+  // Arama sonucunu sil
+  const handleDeleteSearchResult = () => {
+    if (searchResult) {
+      setDeleteId(searchResult.id);
+    }
+  };
+
+  // Poll system stats every 5 seconds when monitoring tab is active
+  useEffect(() => {
+    if (activeTab !== 'monitoring') return;
+    
+    let mounted = true;
+    let interval = null;
+    (async () => {
+      if (!mounted) return;
+      await loadSystemStats();
+      interval = setInterval(() => {
+        loadSystemStats();
+      }, 5000);
+    })();
+    return () => { mounted = false; if (interval) clearInterval(interval); };
+  }, [activeTab]);
+
+  // Load queue stats
+  async function loadQueueStats() {
+    try {
+      const res = await api.get('/import-export/queue/status');
+      setQueueStats(res.data);
+    } catch (err) {
+      console.error('Queue stats yüklenemedi:', err);
+      setQueueStats({ error: err?.response?.data?.error || err.message || String(err) });
+    }
+  }
+
+  // Poll queue stats every 3 seconds when import-export tab is active
+  useEffect(() => {
+    if (activeTab !== 'import-export') return;
+    
+    let mounted = true;
+    let interval = null;
+    (async () => {
+      if (!mounted) return;
+      await loadQueueStats();
+      interval = setInterval(() => {
+        loadQueueStats();
+      }, 3000);
+    })();
+    return () => { mounted = false; if (interval) clearInterval(interval); };
+  }, [activeTab]);
 
   async function handleImport() {
     if (!importFile) return;
@@ -312,12 +430,132 @@ export default function AdminDashboard() {
             >
               İçe/Dışa Aktarma
             </button>
+            <button
+              onClick={() => setActiveTab('monitoring')}
+              className={`px-3 py-2 text-sm font-medium ${activeTab === 'monitoring' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600 hover:text-gray-800'}`}
+            >
+              Sistem İzleme
+            </button>
           </nav>
         </div>
 
         {/* Tab Content */}
         {activeTab === 'animals' && (
-          <AnimalTable animals={animals} onEdit={handleEdit} onDelete={handleDelete} />
+          <>
+            {/* ID ile Arama Bölümü */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200 mb-6">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">ID ile Hayvan Arama</h3>
+              <div className="flex gap-4 items-end">
+                <div className="flex-1">
+                  <label htmlFor="searchId" className="block text-sm font-medium text-gray-700 mb-2">
+                    Hayvan ID
+                  </label>
+                  <input
+                    type="number"
+                    id="searchId"
+                    value={searchId}
+                    onChange={(e) => setSearchId(e.target.value)}
+                    placeholder="Örn: 123"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        searchAnimalById();
+                      }
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={searchAnimalById}
+                  disabled={searchLoading}
+                  className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white px-6 py-2 rounded-md flex items-center gap-2"
+                >
+                  {searchLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Arıyor...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      Ara
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {searchError && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-red-700">
+                  {searchError}
+                </div>
+              )}
+
+              {searchResult && (
+                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-green-800 mb-2">Hayvan Bulundu!</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div><strong>ID:</strong> {searchResult.id}</div>
+                        <div><strong>İsim:</strong> {searchResult.name}</div>
+                        <div><strong>Tür:</strong> {searchResult.species}</div>
+                        <div><strong>Yaş:</strong> {searchResult.age}</div>
+                        <div><strong>Durum:</strong> {searchResult.adopted ? 'Sahiplendirildi' : 'Sahiplendirilebilir'}</div>
+                        <div><strong>Ekleme Tarihi:</strong> {new Date(searchResult.created_at).toLocaleDateString('tr-TR')}</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 ml-4">
+                      <button
+                        onClick={handleEditSearchResult}
+                        className="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm"
+                      >
+                        Düzenle
+                      </button>
+                      <button
+                        onClick={handleDeleteSearchResult}
+                        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+                      >
+                        Sil
+                      </button>
+                    </div>
+                  </div>
+                  {searchResult.imageurl && (
+                    <div className="mt-3">
+                      <img 
+                        src={searchResult.imageurl} 
+                        alt={searchResult.name}
+                        className="w-24 h-24 object-cover rounded-md"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end mb-4">
+              <button
+                onClick={() => {
+                  // show a generic confirm modal for bulk delete
+                  const ok = window.confirm('Tüm hayvanları kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.');
+                  if (!ok) return;
+                  (async () => {
+                    try {
+                      await api.delete('/animals/all');
+                      alert('Tüm hayvanlar silindi');
+                      await loadAnimals();
+                    } catch (e) {
+                      alert('Toplu silme başarısız: ' + (e?.response?.data?.error || e.message));
+                    }
+                  })();
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded mr-4"
+              >
+                Tümünü Sil
+              </button>
+            </div>
+            <AnimalTable animals={animals} onEdit={handleEdit} onDelete={handleDelete} />
+          </>
         )}
 
         {activeTab === 'adoptions' && (
@@ -326,6 +564,111 @@ export default function AdminDashboard() {
 
         {activeTab === 'import-export' && (
           <div className="space-y-8">
+            {/* Queue Status */}
+            <div className="bg-white p-6 rounded-lg border border-gray-200">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-800">İş Kuyruğu Durumu</h3>
+                <button
+                  onClick={loadQueueStats}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                >
+                  Yenile
+                </button>
+              </div>
+
+              {queueStats && queueStats.error ? (
+                <div className="p-4 text-red-600 bg-red-50 rounded-lg">
+                  Kuyruk durumu alınamadı: {queueStats.error}
+                </div>
+              ) : queueStats ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Import Queue */}
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-blue-800 mb-3">Excel/CSV İçe Aktarma</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Bekleyen:</span>
+                        <span className="font-semibold text-orange-600">{queueStats.import?.counts?.waiting || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>İşleniyor:</span>
+                        <span className="font-semibold text-blue-600">{queueStats.import?.counts?.active || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Tamamlanan:</span>
+                        <span className="font-semibold text-green-600">{queueStats.import?.counts?.completed || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Başarısız:</span>
+                        <span className="font-semibold text-red-600">{queueStats.import?.counts?.failed || 0}</span>
+                      </div>
+                    </div>
+                    
+                    {(queueStats.import?.counts?.waiting || 0) > 0 && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span>İlerleme</span>
+                          <span>{Math.round(((queueStats.import?.counts?.completed || 0) / ((queueStats.import?.counts?.completed || 0) + (queueStats.import?.counts?.waiting || 0) + (queueStats.import?.counts?.active || 0))) * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ 
+                              width: `${Math.round(((queueStats.import?.counts?.completed || 0) / ((queueStats.import?.counts?.completed || 0) + (queueStats.import?.counts?.waiting || 0) + (queueStats.import?.counts?.active || 0))) * 100)}%` 
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Image Queue */}
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <h4 className="font-semibold text-green-800 mb-3">Fotoğraf Optimizasyonu</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Bekleyen:</span>
+                        <span className="font-semibold text-orange-600">{queueStats.imageOptimize?.counts?.waiting || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>İşleniyor:</span>
+                        <span className="font-semibold text-blue-600">{queueStats.imageOptimize?.counts?.active || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Tamamlanan:</span>
+                        <span className="font-semibold text-green-600">{queueStats.imageOptimize?.counts?.completed || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Başarısız:</span>
+                        <span className="font-semibold text-red-600">{queueStats.imageOptimize?.counts?.failed || 0}</span>
+                      </div>
+                    </div>
+
+                    {(queueStats.imageOptimize?.counts?.waiting || 0) > 0 && (
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span>İlerleme</span>
+                          <span>{Math.round(((queueStats.imageOptimize?.counts?.completed || 0) / ((queueStats.imageOptimize?.counts?.completed || 0) + (queueStats.imageOptimize?.counts?.waiting || 0) + (queueStats.imageOptimize?.counts?.active || 0))) * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                            style={{ 
+                              width: `${Math.round(((queueStats.imageOptimize?.counts?.completed || 0) / ((queueStats.imageOptimize?.counts?.completed || 0) + (queueStats.imageOptimize?.counts?.waiting || 0) + (queueStats.imageOptimize?.counts?.active || 0))) * 100)}%` 
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                  <span className="ml-2 text-gray-600">Kuyruk durumu yükleniyor...</span>
+                </div>
+              )}
+            </div>
             {/* Cache Statistics */}
             <div className="bg-white p-6 rounded-lg border border-gray-200">
               <div className="flex justify-between items-center mb-4">
@@ -352,30 +695,79 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {cacheStats ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <div className="text-2xl font-bold text-green-600">{cacheStats.hits}</div>
-                    <div className="text-sm text-green-800">Cache Hit</div>
+              {cacheStats && cacheStats.error ? (
+                <div className="p-4 text-red-600">Cache istatistikleri alınamadı: {cacheStats.error}</div>
+              ) : cacheStats && cacheStats.cache ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-green-50 p-4 rounded-lg">
+                      <div className="text-2xl font-bold text-green-600">{cacheStats.cache.hits}</div>
+                      <div className="text-sm text-green-800">Cache Hit</div>
+                    </div>
+                    <div className="bg-red-50 p-4 rounded-lg">
+                      <div className="text-2xl font-bold text-red-600">{cacheStats.cache.misses}</div>
+                      <div className="text-sm text-red-800">Cache Miss</div>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-600">{cacheStats.cache.hitRate}</div>
+                      <div className="text-sm text-blue-800">Hit Oranı</div>
+                    </div>
                   </div>
-                  <div className="bg-red-50 p-4 rounded-lg">
-                    <div className="text-2xl font-bold text-red-600">{cacheStats.misses}</div>
-                    <div className="text-sm text-red-800">Cache Miss</div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-white p-4 rounded-lg border">
+                      <div className="text-sm text-gray-600">Toplam İstek</div>
+                      <div className="text-xl font-bold">{cacheStats.cache.totalRequests}</div>
+                    </div>
+                    <div className="bg-white p-4 rounded-lg border">
+                      <div className="text-sm text-gray-600">Cache Set</div>
+                      <div className="text-xl font-bold">{cacheStats.cache.sets}</div>
+                    </div>
+                    <div className="bg-white p-4 rounded-lg border">
+                      <div className="text-sm text-gray-600">Hata</div>
+                      <div className="text-xl font-bold text-red-600">{cacheStats.cache.errors}</div>
+                    </div>
                   </div>
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <div className="text-2xl font-bold text-blue-600">{cacheStats.hitRate}</div>
-                    <div className="text-sm text-blue-800">Hit Oranı</div>
+
+                  {/* Redis details */}
+                  <div className="bg-white p-4 rounded-lg border">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm text-gray-600">Redis Durumu</div>
+                        <div className={`font-bold ${cacheStats.redis && cacheStats.redis.parsed && cacheStats.redis.parsed.connected ? 'text-green-600' : 'text-red-600'}`}>
+                          {cacheStats.redis && cacheStats.redis.parsed && cacheStats.redis.parsed.connected ? 'Connected' : 'Disconnected'}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-gray-600">Sürüm</div>
+                        <div className="font-semibold">{cacheStats.redis && cacheStats.redis.parsed && cacheStats.redis.parsed.redisVersion ? cacheStats.redis.parsed.redisVersion : '-'}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-xs text-gray-500">Bellek</div>
+                        <div className="font-medium">{cacheStats.redis && cacheStats.redis.parsed && cacheStats.redis.parsed.memory ? cacheStats.redis.parsed.memory : '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500">Anahtar Sayısı (db0)</div>
+                        <div className="font-medium">{cacheStats.redis && cacheStats.redis.parsed && cacheStats.redis.parsed.keyCount != null ? cacheStats.redis.parsed.keyCount : '-'}</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-purple-50 p-4 rounded-lg">
-                    <div className="text-2xl font-bold text-purple-600">{cacheStats.totalRequests}</div>
-                    <div className="text-sm text-purple-800">Toplam İstek</div>
+
+                  <div className="text-xs text-gray-500 text-center">
+                    Son güncelleme: {new Date().toLocaleString('tr-TR')}
                   </div>
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-4">Cache istatistikleri yükleniyor...</p>
               )}
             </div>
+          </div>
+        )}
 
+        {activeTab === 'import-export' && (
+          <div>
             {/* Export Section */}
             <div className="bg-white p-6 rounded-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800 mb-4">Veri Dışa Aktarma</h3>
@@ -478,19 +870,179 @@ export default function AdminDashboard() {
                   {importLoading ? (
                     <>
                       <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      Aktarılıyor...
+                      Kuyruğa Ekleniyor...
                     </>
                   ) : (
                     <>
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
-                      Verileri Aktar
+                      Kuyruğa Ekle ve İşle
                     </>
                   )}
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'monitoring' && (
+          <div className="space-y-6">
+            {systemStats && systemStats.error ? (
+              <div className="p-4 text-red-600 bg-red-50 rounded-lg">
+                Sistem istatistikleri alınamadı: {systemStats.error}
+              </div>
+            ) : systemStats ? (
+              <>
+                {/* System Resources */}
+                <div className="bg-white p-6 rounded-lg border">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Sistem Kaynakları</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-blue-600">Bellek Kullanımı</div>
+                          <div className="text-2xl font-bold text-blue-800">{systemStats.system.memory.usagePercent}%</div>
+                          <div className="text-xs text-blue-600">{systemStats.system.memory.used} / {systemStats.system.memory.total}</div>
+                        </div>
+                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-green-50 p-4 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-green-600">CPU Yükü</div>
+                          <div className="text-2xl font-bold text-green-800">{systemStats.system.cpu.loadAverage}</div>
+                          <div className="text-xs text-green-600">{systemStats.system.cpu.cores} çekirdek</div>
+                        </div>
+                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                          <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="bg-purple-50 p-4 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-purple-600">Çalışma Süresi</div>
+                          <div className="text-lg font-bold text-purple-800">{systemStats.system.uptime.formatted}</div>
+                        </div>
+                        <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                          <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Database Stats */}
+                <div className="bg-white p-6 rounded-lg border">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Veritabanı İstatistikleri</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div className="text-center p-3 bg-gray-50 rounded">
+                      <div className="text-2xl font-bold text-gray-800">{systemStats.database.total_animals || 0}</div>
+                      <div className="text-sm text-gray-600">Toplam Hayvan</div>
+                    </div>
+                    <div className="text-center p-3 bg-green-50 rounded">
+                      <div className="text-2xl font-bold text-green-600">{systemStats.database.adopted_animals || 0}</div>
+                      <div className="text-sm text-green-700">Sahiplenildi</div>
+                    </div>
+                    <div className="text-center p-3 bg-blue-50 rounded">
+                      <div className="text-2xl font-bold text-blue-600">{systemStats.database.total_users || 0}</div>
+                      <div className="text-sm text-blue-700">Toplam Kullanıcı</div>
+                    </div>
+                    <div className="text-center p-3 bg-yellow-50 rounded">
+                      <div className="text-2xl font-bold text-yellow-600">{systemStats.database.total_requests || 0}</div>
+                      <div className="text-sm text-yellow-700">Başvuru</div>
+                    </div>
+                    <div className="text-center p-3 bg-orange-50 rounded">
+                      <div className="text-2xl font-bold text-orange-600">{systemStats.database.pending_requests || 0}</div>
+                      <div className="text-sm text-orange-700">Bekleyen</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Active Users */}
+                <div className="bg-white p-6 rounded-lg border">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                    Aktif Kullanıcılar ({systemStats.activeUsers.length})
+                  </h3>
+                  {systemStats.activeUsers.length > 0 ? (
+                    <div className="space-y-2">
+                      {systemStats.activeUsers.map((user, index) => (
+                        <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-3 h-3 rounded-full ${user.role === 'admin' ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                            <span className="font-medium">{user.username}</span>
+                            <span className={`px-2 py-1 text-xs rounded ${user.role === 'admin' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>
+                              {user.role}
+                            </span>
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {new Date(user.lastSeen).toLocaleTimeString('tr-TR')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-center py-4">Şu anda aktif kullanıcı yok</p>
+                  )}
+                </div>
+
+                {/* Performance Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white p-6 rounded-lg border">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Performans</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Ortalama Yanıt Süresi</span>
+                        <span className="font-semibold">{systemStats.response.avgResponseTime.toFixed(0)}ms</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Toplam İstek</span>
+                        <span className="font-semibold">{systemStats.response.requestCount}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Hata Oranı</span>
+                        <span className="font-semibold text-red-600">{systemStats.response.errorRate}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-lg border">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">Disk Kullanımı</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Upload Dosyaları</span>
+                        <span className="font-semibold">{systemStats.disk.uploadFiles || 0}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Toplam Boyut</span>
+                        <span className="font-semibold">{systemStats.disk.uploadSize || '0 MB'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-500 text-center">
+                  Son güncelleme: {new Date(systemStats.timestamp).toLocaleString('tr-TR')}
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span className="ml-2 text-gray-600">Sistem istatistikleri yükleniyor...</span>
+              </div>
+            )}
           </div>
         )}
       </div>

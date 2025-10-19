@@ -15,7 +15,6 @@ import RequireAdmin from './components/common/RequireAdmin';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { ToastProvider } from './contexts/ToastContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
-import Search from './pages/Search';
 
 function App() {
   return (
@@ -36,7 +35,6 @@ function App() {
                     <Route path="/my-requests" element={<RequireAuth><MyRequests /></RequireAuth>} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/register" element={<Register />} />
-                    <Route path="/search" element={<Search />} />
                   </Routes>
                 </div>
               </main>

@@ -14,7 +14,7 @@ export default function AnimalProfile({ animal }) {
       <div className="grid grid-cols-1 md:grid-cols-2 items-center gap-6">
         <div className="flex justify-center items-center">
           <img
-            src={animal.imageUrl || '/vite.svg'}
+            src={animal.imageUrl || '/logo1.svg'}
             alt={animal.name}
             className="w-40 h-40 sm:w-56 sm:h-56 md:w-64 md:h-64 object-cover rounded-lg"
             style={{ minHeight: '10rem', minWidth: '10rem' }}

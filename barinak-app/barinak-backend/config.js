@@ -36,7 +36,20 @@ process.env.TZ = 'Europe/Istanbul';
 // PostgreSQL connection string
 const pgConnectionString = `postgresql://${config.db.user}:${config.db.password}@${config.db.host}:${config.db.port}/${config.db.database}?sslmode=disable`;
 
+// Redis client for general commands
 const redisClient = new Redis({
+  host: config.redis.host,
+  port: config.redis.port,
+  password: config.redis.password,
+  db: config.redis.db,
+  retryDelayOnFailover: 100,
+  enableReadyCheck: true,
+  maxRetriesPerRequest: null,
+  lazyConnect: true,
+});
+
+// Separate subscriber client for pub/sub to avoid 'subscriber mode' blocking commands
+const redisSubscriber = new Redis({
   host: config.redis.host,
   port: config.redis.port,
   password: config.redis.password,
@@ -50,9 +63,15 @@ const redisClient = new Redis({
 redisClient.on('error', (err) => {
   console.error('Redis Client Error:', err);
 });
-
 redisClient.on('connect', () => {
   console.log('Redis Client Connected');
+});
+
+redisSubscriber.on('error', (err) => {
+  console.error('Redis Subscriber Error:', err);
+});
+redisSubscriber.on('connect', () => {
+  console.log('Redis Subscriber Connected');
 });
 
 // Configure AWS S3 client for MinIO compatibility
@@ -69,6 +88,7 @@ module.exports = {
   // İleride prod’da değiştirmek isterseniz burada veya ortam değişkeni ile güncelleyebilirsiniz.
   JWT_SECRET: 'devsecret',
   redisClient,
+  redisSubscriber,
   s3,
   s3Config: config.s3,
 };

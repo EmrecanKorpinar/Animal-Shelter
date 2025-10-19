@@ -92,9 +92,61 @@ const userViewsRouter = require('./routes/user_views');
 app.use('/api/user_views', userViewsRouter);
 const searchRouter = require('./routes/search');
 app.use('/api/search', searchRouter);
+const systemRouter = require('./routes/system');
+app.use('/api/system', systemRouter);
 
-app.get('/api/cache/stats', (req, res) => {
-  res.json(getCacheStats());
+app.get('/api/cache/stats', async (req, res) => {
+  try {
+    const baseStats = getCacheStats();
+
+    // Redis info and connection state
+    const { redisClient } = require('./config');
+    let redisInfo = {};
+    try {
+      const infoRaw = await redisClient.info();
+      // parse a couple of useful fields from INFO
+      const lines = infoRaw.split('\n');
+      lines.forEach((line) => {
+        if (!line || line.startsWith('#')) return;
+        const [k, v] = line.split(':');
+        if (k && v) redisInfo[k.trim()] = v.trim();
+      });
+
+      const keyCount = parseInt(redisInfo['db0'] ? (redisInfo['db0'].split('=')[1] || 0) : 0, 10) || 0;
+      redisInfo.parsed = {
+        connected: redisClient.status === 'ready',
+        memory: redisInfo['used_memory_human'] || redisInfo['used_memory'] || null,
+        keyCount,
+        redisVersion: redisInfo['redis_version'] || null,
+      };
+    } catch (e) {
+      redisInfo.error = e.message || String(e);
+      redisInfo.parsed = { connected: redisClient.status === 'ready' };
+    }
+
+    // Try to get queue lengths for known queues (Bull)
+    const queueCounts = {};
+    try {
+      // lazy-require to avoid startup issues when bull isn't configured
+      const Queue = require('bull');
+      const importQueue = new Queue('import-job', { redis: { host: process.env.REDIS_HOST || '127.0.0.1', port: process.env.REDIS_PORT || 6379 } });
+      const imgQueue = new Queue('image-optimize', { redis: { host: process.env.REDIS_HOST || '127.0.0.1', port: process.env.REDIS_PORT || 6379 } });
+      const [importCounts, imgCounts] = await Promise.all([importQueue.getJobCounts(), imgQueue.getJobCounts()]);
+      queueCounts['import-job'] = importCounts;
+      queueCounts['image-optimize'] = imgCounts;
+      // close created queue clients
+      await importQueue.close();
+      await imgQueue.close();
+    } catch (e) {
+      // non-fatal; queueCounts stays empty or partial
+      console.error('Queue stats error:', e.message || e);
+      queueCounts.error = e.message || String(e);
+    }
+
+    res.json({ cache: baseStats, redis: redisInfo, queues: queueCounts });
+  } catch (err) {
+    res.status(500).json({ error: err.message || String(err) });
+  }
 });
 
 app.post('/api/cache/clear', (req, res) => {
